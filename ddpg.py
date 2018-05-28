@@ -4,59 +4,86 @@ import torch.optim as optim
 import torch.nn as nn
 from random_process import OrnsteinUhlenbeckProcess
 from utils import *
-from replay_memory import Replay
+from replay_memory import SequentialMemory as Replay
 
 class DDPG:
-    def __init__(self, obs_dim, act_dim, critic_lr = 1e-3, actor_lr = 1e-4, gamma = 0.99, alpha_decay=0.93, batch_size = 64):
+    def __init__(self, obs_dim, act_dim,memory_size=50000, batch_size=64,\
+                 lr_critic=1e-3, lr_actor=1e-4, gamma=0.99, tau=0.001):
         
-        self.gamma = gamma
-        self.batch_size = batch_size
-        self.obs_dim = obs_dim
-        self.act_dim = act_dim
-        
+        self.gamma          = gamma
+        self.batch_size     = batch_size
+        self.obs_dim        = obs_dim
+        self.act_dim        = act_dim
+        self.memory_size    = memory_size
+        self.tau            = tau
+
         # actor
-        self.actor = actor(input_size = obs_dim, output_size = act_dim).type(FloatTensor)
-        self.actor.cuda()
-        self.actor_target = actor(input_size = obs_dim, output_size = act_dim).type(FloatTensor)
-        self.actor_target.cuda()
+        self.actor = actor(input_size = obs_dim, output_size = act_dim)
+        self.actor_target = actor(input_size = obs_dim, output_size = act_dim)
         self.actor_target.load_state_dict(self.actor.state_dict())
 
         # critic
-        self.critic = critic(state_size = obs_dim, action_size = act_dim, output_size = 1).type(FloatTensor)
-        self.critic.cuda()
-        self.critic_target = critic(state_size = obs_dim, action_size = act_dim, output_size = 1).type(FloatTensor)
-        self.critic_target.cuda()
+        self.critic = critic(state_size = obs_dim, action_size = act_dim, output_size=1)
+        self.critic_target = critic(state_size = obs_dim, action_size = act_dim, output_size=1)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # optimizers
-        self.optimizer_actor = torch.optim.Adam(self.actor.parameters(), lr = actor_lr)
-        self.optimizer_critic = torch.optim.Adam(self.critic.parameters(), lr = critic_lr, weight_decay=1e-2)
-        
-        # learning rate scheduler
-        self.scheduler_actor = optim.lr_scheduler.StepLR(self.optimizer_actor, step_size=5000, gamma=alpha_decay)
-        self.scheduler_critic = optim.lr_scheduler.StepLR(self.optimizer_critic, step_size=5000, gamma=alpha_decay)
-        
-        
+        self.optimizer_actor = optim.Adam(self.actor.parameters(), lr=lr_actor)
+        self.optimizer_critic = optim.Adam(self.critic.parameters(), lr=lr_critic)
+
         # critic loss
         self.critic_loss = nn.MSELoss()
         
         # noise
-        self.noise = OrnsteinUhlenbeckProcess(dimension = act_dim, num_steps = NUM_EPISODES)
+        self.noise = OrnsteinUhlenbeckProcess(dimension=act_dim, num_steps=5000)
 
         # replay buffer 
-        self.replayBuffer = Replay(60000)
-        
-        
-    def train(self):
-     
+        self.replayBuffer = Replay(self.memory_size, window_length=1)
+
+    def share_memory(self):
+        self.actor.share_memory()
+        self.critic.share_memory()
+
+    def assign_global_optimizer(self, optimizer_global_actor, optimizer_global_critic):
+        self.optimizer_global_actor = optimizer_global_actor
+        self.optimizer_global_critic = optimizer_global_critic
+
+    def copy_gradients(self, model_local, model_global ):
+        for param_local, param_global in zip(model_local.parameters(), model_global.parameters()):
+            param_global._grad = param_local.grad
+
+    def sync_grad_with_global_model(self, global_model):
+        #global_model.actor.zero_grad()
+        self.copy_gradients(self.actor, global_model.actor)
+
+        #global_model.critic.zero_grad()
+        self.copy_gradients(self.critic, global_model.critic)
+        #self.copy_gradients(self.target_actor, global_model.target_actor)
+        #self.copy_gradients(self.target_critic, global_model.target_critic)
+
+    def update_target_parameters(self):
+        # Soft update of actor_target
+        for parameter_target, parameter_source in zip(self.actor_target.parameters(), self.actor.parameters()):
+            parameter_target.data.copy_((1 - self.tau) * parameter_target.data + self.tau * parameter_source.data)
+        # Soft update of critic_target
+        for parameter_target, parameter_source in zip(self.actor_target.parameters(), self.actor.parameters()):
+            parameter_target.data.copy_((1 - self.tau) * parameter_target.data + self.tau * parameter_source.data)
+
+    def sync_local_global(self, global_model):
+        self.actor.load_state_dict(global_model.actor.state_dict())
+        self.critic.load_state_dict(global_model.critic.state_dict())
+        self.actor_target.load_state_dict(global_model.actor_target.state_dict())
+        self.critic_target.load_state_dict(global_model.critic_target.state_dict())
+
+    def train(self, global_model):
         # sample from Replay
-        states, actions, rewards, next_states, terminates = self.replayBuffer.sample(self.batch_size)
+        states, actions, rewards, next_states, terminates = self.replayBuffer.sample_and_split(self.batch_size)
 
         # update critic (create target for Q function)
         target_qvalues = self.critic_target(to_tensor(next_states, volatile=True),\
-                                           self.actor_target(to_tensor(next_states, volatile=True)))
+                                            self.actor_target(to_tensor(next_states, volatile=True)))
         y = to_numpy(to_tensor(rewards) +\
-            self.gamma*to_tensor(1-terminates)*target_qvalues)
+                     self.gamma*to_tensor(1-terminates)*target_qvalues)
 
         q_values = self.critic(to_tensor(states),
                                to_tensor(actions))
@@ -64,25 +91,21 @@ class DDPG:
         
                
         # critic optimizer and backprop step (feed in target and predicted values to self.critic_loss)
-        self.critic.zero_grad()
+        #self.critic.zero_grad()
         qvalue_loss.backward()
         self.optimizer_critic.step()
-        self.scheduler_critic.step()
-        
-
         # update actor (formulate the loss wrt which actor is updated)
         policy_loss = -self.critic(to_tensor(states),\
-                                 self.actor(to_tensor(states)))
+                                   self.actor(to_tensor(states)))
         policy_loss = policy_loss.mean()
-        
 
         # actor optimizer and backprop step (loss_actor.backward())
-        self.actor.zero_grad()
+        #self.actor.zero_grad()
         policy_loss.backward()
         self.optimizer_actor.step()
-        self.scheduler_actor.step()
-        
-        # sychronize target network with fast moving one
-        weightSync(self.critic_target, self.critic)
-        weightSync(self.actor_target, self.actor)
-        
+        self.update_target_parameters()
+
+        # self.sync_grad_with_global_model(global_model)
+        # self.optimizer_global_critic.step()
+        # self.optimizer_global_actor.step()
+        # global_model.update_target_parameters()

@@ -1,6 +1,7 @@
 import numpy as np
 import torch.nn as nn
-import torch.nn.Functional as F
+import torch.nn.functional as F
+import torch
 
 def fanin_init(size, fanin=None):
     fanin = fanin or size[0]
@@ -48,7 +49,7 @@ class critic(nn.Module):
     def __init__(self, state_size, action_size, output_size):
         super(critic, self).__init__()
         self.fc1 = nn.Linear(state_size, 300)
-        #self.bn1 = nn.BatchNorm1d(300)
+        self.bn1 = nn.BatchNorm1d(300)
         self.fc2 = nn.Linear(300 + action_size, 300)
         self.fc3 = nn.Linear(300, output_size)
         self.init_weights()
@@ -60,7 +61,7 @@ class critic(nn.Module):
         
     def forward(self, state, action):
         out = self.fc1(state)
-        #out = self.bn1(out)
+        out = self.bn1(out)
         out = F.relu(out)
         out = F.relu(self.fc2(torch.cat([out,action],1)))
         qvalue = self.fc3(out)
