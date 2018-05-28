@@ -42,6 +42,10 @@ class DDPG:
         #self.replayBuffer = Replay(self.memory_size, window_length=1)
         self.replayBuffer = Replay(self.memory_size, self.env)
 
+    def hard_update(self):
+        self.actor_target.load_state_dict(self.actor.state_dict())
+        self.critic_target.load_state_dict(self.critic.state_dict())
+
     def share_memory(self):
         self.actor.share_memory()
         self.critic.share_memory()
@@ -52,16 +56,13 @@ class DDPG:
 
     def copy_gradients(self, model_local, model_global ):
         for param_local, param_global in zip(model_local.parameters(), model_global.parameters()):
+            if param_global.grad is not None:
+                return
             param_global._grad = param_local.grad
 
     def sync_grad_with_global_model(self, global_model):
-        #global_model.actor.zero_grad()
         self.copy_gradients(self.actor, global_model.actor)
-
-        #global_model.critic.zero_grad()
         self.copy_gradients(self.critic, global_model.critic)
-        #self.copy_gradients(self.target_actor, global_model.target_actor)
-        #self.copy_gradients(self.target_critic, global_model.target_critic)
 
     def update_target_parameters(self):
         # Soft update of actor_target
@@ -74,8 +75,6 @@ class DDPG:
     def sync_local_global(self, global_model):
         self.actor.load_state_dict(global_model.actor.state_dict())
         self.critic.load_state_dict(global_model.critic.state_dict())
-        self.actor_target.load_state_dict(global_model.actor_target.state_dict())
-        self.critic_target.load_state_dict(global_model.critic_target.state_dict())
 
     def train(self, global_model):
         # sample from Replay
@@ -94,23 +93,24 @@ class DDPG:
         
                
         # critic optimizer and backprop step (feed in target and predicted values to self.critic_loss)
-        #self.critic.zero_grad()
         self.critic.zero_grad()
         qvalue_loss.backward()
-        self.optimizer_critic.step()
+        self.copy_gradients(self.critic, global_model.critic)
+        self.optimizer_global_critic.step()
+
         # update actor (formulate the loss wrt which actor is updated)
         policy_loss = -self.critic(to_tensor(states),\
                                    self.actor(to_tensor(states)))
         policy_loss = policy_loss.mean()
 
         # actor optimizer and backprop step (loss_actor.backward())
-        #self.actor.zero_grad()
         self.actor.zero_grad()
         policy_loss.backward()
-        self.optimizer_actor.step()
-        self.update_target_parameters()
+        self.copy_gradients(self.actor, global_model.actor)
+        self.optimizer_global_actor.step()
 
-        # self.sync_grad_with_global_model(global_model)
-        # self.optimizer_global_critic.step()
-        # self.optimizer_global_actor.step()
-        # global_model.update_target_parameters()
+        # copy global network weights to local
+        self.sync_local_global(global_model)
+
+        # soft-update of target
+        self.update_target_parameters()

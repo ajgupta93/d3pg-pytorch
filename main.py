@@ -80,27 +80,23 @@ class Worker(object):
         n_steps = 0
 
         #self.warmup()
-
+        self.model.sync_local_global(global_model)
+        self.model.hard_update()
         for i in range(args.n_eps):
-            #pdb.set_trace()
-#            self.model.sync_local_global(global_model)
             state = self.env.reset()
             total_reward = 0.
             for j in range(args.max_steps):
-                # pdb.set_trace()
-                # self.model.sync_local_global(global_model)
 
                 self.model.actor.eval()
 
                 state = state.reshape(1, -1)
                 noise = self.model.noise.sample()
-                action = to_numpy(self.model.actor(to_tensor(state))).reshape(-1,) + noise
-                #print('Action :', action)
+                action = to_numpy(self.model.actor(to_tensor(state))).reshape(-1, ) + noise
                 next_state, reward, done, _ = self.env.step(action)
                 total_reward += reward
                 self.model.replayBuffer.add_experience(state.reshape(-1), action, reward, next_state, done)
+                #self.model.replayBuffer.append(state.reshape(-1), action, reward, done)
 
-                #pdb.set_trace()
                 self.model.actor.train()
                 self.model.train(global_model)
 
@@ -126,15 +122,12 @@ if __name__ == '__main__':
     optimizer_global_critic.share_memory()
     global_model.share_memory()
 
-    worker = Worker('1', optimizer_global_actor, optimizer_global_critic)
-    worker.work(global_model)
+    processes = []
+    for i in range(args.n_workers):
+      worker = Worker(str(i), optimizer_global_actor, optimizer_global_critic)
+      p = mp.Process(target=worker.work, args=[global_model])
+      p.start()
+      processes.append(p)
 
-    #processes = []
-    #for i in range(args.n_workers):
-    #    worker = Worker(str(i), optimizer_global_actor, optimizer_global_critic)
-    #    p = mp.Process(target=worker.work, args=[global_model])
-    #    p.start()
-    #    processes.append(p)
-
-    #for p in processes:
-    #    p.join()
+    for p in processes:
+        p.join()

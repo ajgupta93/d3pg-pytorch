@@ -3,7 +3,6 @@ import math
 import torch
 import torch.optim as optim
 
-
 class SharedAdam(optim.Adam):
     """Implements Adam algorithm with shared states.
     """

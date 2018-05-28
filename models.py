@@ -16,9 +16,9 @@ class actor(nn.Module):
     def __init__(self, input_size, output_size):
         super(actor, self).__init__()
         self.fc1 = nn.Linear(input_size, 400)
-        self.bn1 = nn.BatchNorm1d(400)
+        #self.bn1 = nn.BatchNorm1d(400)
         self.fc2 = nn.Linear(400, 400)
-        self.bn2 = nn.BatchNorm1d(400)
+        #self.bn2 = nn.BatchNorm1d(400)
         self.fc3 = nn.Linear(400, output_size)
         self.init_weights()
     
@@ -29,10 +29,10 @@ class actor(nn.Module):
 
     def forward(self, state):
         out = self.fc1(state)
-        out = self.bn1(out)
+        #out = self.bn1(out)
         out = F.relu(out)
         out = self.fc2(out)
-        out = self.bn2(out)
+        #out = self.bn2(out)
         out = F.relu(out)
         action = F.tanh(self.fc3(out))
         return action
@@ -41,7 +41,7 @@ class actor(nn.Module):
 # ----------------------------------------------------
 # critic model, MLP
 # ----------------------------------------------------
-# 2 hidden layers, 300 units per layer, ouputs rewards therefore unbounded
+# 2 hidden layers, 300 units per layer, outputs rewards therefore unbounded
 # Action not to be included until 2nd layer of critic (from paper). Make sure 
 # to formulate your critic.forward() accordingly
 
@@ -49,7 +49,7 @@ class critic(nn.Module):
     def __init__(self, state_size, action_size, output_size):
         super(critic, self).__init__()
         self.fc1 = nn.Linear(state_size, 300)
-        self.bn1 = nn.BatchNorm1d(300)
+        #self.bn1 = nn.BatchNorm1d(300)
         self.fc2 = nn.Linear(300 + action_size, 300)
         self.fc3 = nn.Linear(300, output_size)
         self.init_weights()
@@ -61,7 +61,7 @@ class critic(nn.Module):
         
     def forward(self, state, action):
         out = self.fc1(state)
-        out = self.bn1(out)
+        #out = self.bn1(out)
         out = F.relu(out)
         out = F.relu(self.fc2(torch.cat([out,action],1)))
         qvalue = self.fc3(out)

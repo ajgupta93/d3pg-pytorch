@@ -18,7 +18,7 @@ def sample_batch_indexes(low, high, size):
         # the memory grows. See https://github.com/numpy/numpy/issues/2764 for a discussion.
         # `random.sample` does the same thing (drawing without replacement) and is way faster.
         try:
-            r = range(low, high)
+            r = xrange(low, high)
         except NameError:
             r = range(low, high)
         batch_idxs = random.sample(r, size)
@@ -26,7 +26,8 @@ def sample_batch_indexes(low, high, size):
         # Not enough data. Help ourselves with sampling from the range, but the same index
         # can occur multiple times. This is not good and should be avoided by picking a
         # large enough warm-up phase.
-        warnings.warn('Not enough entries to sample without replacement. Consider increasing your warm-up phase to avoid oversampling!')
+        warnings.warn(
+            'Not enough entries to sample without replacement. Consider increasing your warm-up phase to avoid oversampling!')
         batch_idxs = np.random.random_integers(low, high - 1, size=size)
     assert len(batch_idxs) == size
     return batch_idxs
@@ -112,6 +113,7 @@ class Memory(object):
         }
         return config
 
+
 class SequentialMemory(Memory):
     def __init__(self, limit, **kwargs):
         super(SequentialMemory, self).__init__(**kwargs)
@@ -178,53 +180,29 @@ class SequentialMemory(Memory):
         assert len(experiences) == batch_size
         return experiences
 
-    def sample_and_split(self, batch_size, batch_idxs=None, shared=False, num_states=4):
-        if shared:
-            experiences = self.sample(batch_size, batch_idxs)
+    def sample_and_split(self, batch_size, batch_idxs=None):
+        experiences = self.sample(batch_size, batch_idxs)
 
-            state0_batch = []
-            reward_batch = []
-            action_batch = []
-            terminal1_batch = []
-            state1_batch = []
-            for e in experiences:
-                if len(e.state0[0]) == 41*num_states and len(e.state1[0]) == 41*num_states:
-                    state0_batch.append(e.state0)
-                    state1_batch.append(e.state1)
-                    reward_batch.append(e.reward)
-                    action_batch.append(e.action)
-                    terminal1_batch.append(0. if e.terminal1 else 1.)
+        state0_batch = []
+        reward_batch = []
+        action_batch = []
+        terminal1_batch = []
+        state1_batch = []
+        for e in experiences:
+            state0_batch.append(e.state0)
+            state1_batch.append(e.state1)
+            reward_batch.append(e.reward)
+            action_batch.append(e.action)
+            terminal1_batch.append(0. if e.terminal1 else 1.)
 
-            # Prepare and validate parameters.
-            state0_batch = np.array(state0_batch).reshape(len(state0_batch),-1)
-            state1_batch = np.array(state1_batch).reshape(len(state0_batch),-1)
-            terminal1_batch = np.array(terminal1_batch).reshape(len(state0_batch),-1)
-            reward_batch = np.array(reward_batch).reshape(len(state0_batch),-1)
-            action_batch = np.array(action_batch).reshape(len(state0_batch),-1)
-        else:
-            experiences = self.sample(batch_size, batch_idxs)
-
-            state0_batch = []
-            reward_batch = []
-            action_batch = []
-            terminal1_batch = []
-            state1_batch = []
-            for e in experiences:
-                state0_batch.append(e.state0)
-                state1_batch.append(e.state1)
-                reward_batch.append(e.reward)
-                action_batch.append(e.action)
-                terminal1_batch.append(0. if e.terminal1 else 1.)
-
-            # Prepare and validate parameters.
-            state0_batch = np.array(state0_batch).reshape(batch_size,-1)
-            state1_batch = np.array(state1_batch).reshape(batch_size,-1)
-            terminal1_batch = np.array(terminal1_batch).reshape(batch_size,-1)
-            reward_batch = np.array(reward_batch).reshape(batch_size,-1)
-            action_batch = np.array(action_batch).reshape(batch_size,-1)
+        # Prepare and validate parameters.
+        state0_batch = np.array(state0_batch).reshape(batch_size, -1)
+        state1_batch = np.array(state1_batch).reshape(batch_size, -1)
+        terminal1_batch = np.array(terminal1_batch).reshape(batch_size, -1)
+        reward_batch = np.array(reward_batch).reshape(batch_size, -1)
+        action_batch = np.array(action_batch).reshape(batch_size, -1)
 
         return state0_batch, action_batch, reward_batch, state1_batch, terminal1_batch
-
 
     def append(self, observation, action, reward, terminal, training=True):
         super(SequentialMemory, self).append(observation, action, reward, terminal, training=training)
