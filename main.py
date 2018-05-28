@@ -12,7 +12,7 @@ import pdb
 parser = argparse.ArgumentParser(description='async_ddpg')
 
 #parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
-parser.add_argument('--n_workers', type=int, default=1, help='how many training processes to use (default: 4)')
+parser.add_argument('--n_workers', type=int, default=2, help='how many training processes to use (default: 4)')
 parser.add_argument('--rmsize', default=50000, type=int, help='memory size')
 #parser.add_argument('--init_w', default=0.003, type=float, help='')
 #parser.add_argument('--window_length', default=1, type=int, help='')
@@ -51,7 +51,7 @@ class Worker(object):
         self.env._max_episode_steps = args.max_steps
         self.name = name
 
-        self.model = DDPG(obs_dim=obs_dim, act_dim=act_dim, memory_size=args.rmsize,\
+        self.model = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=self.env, memory_size=args.rmsize,\
                           batch_size=args.bsize, tau=args.tau)
         self.model.assign_global_optimizer(optimizer_global_actor, optimizer_global_critic)
         print('Intialized worker :',self.name)
@@ -65,7 +65,6 @@ class Worker(object):
         #
         state = self.env.reset()
         for n_steps in range(args.warmup):
-            state = state.reshape(1,-1)
             action = np.random.uniform(-1.0, 1.0, size=act_dim)
             next_state, reward, done, _ = self.env.step(action)
             self.model.replayBuffer.append(state, action, reward, done)
@@ -80,7 +79,7 @@ class Worker(object):
         avg_reward = 0.
         n_steps = 0
 
-        self.warmup()
+        #self.warmup()
 
         for i in range(args.n_eps):
             #pdb.set_trace()
@@ -93,13 +92,13 @@ class Worker(object):
 
                 self.model.actor.eval()
 
-                state = state.reshape(1,-1)
+                state = state.reshape(1, -1)
                 noise = self.model.noise.sample()
                 action = to_numpy(self.model.actor(to_tensor(state))).reshape(-1,) + noise
                 #print('Action :', action)
                 next_state, reward, done, _ = self.env.step(action)
                 total_reward += reward
-                self.model.replayBuffer.append(state, action, reward, done)
+                self.model.replayBuffer.add_experience(state.reshape(-1), action, reward, next_state, done)
 
                 #pdb.set_trace()
                 self.model.actor.train()
@@ -118,7 +117,7 @@ class Worker(object):
                 print('Episode ',i,'\tWorker :',self.name,'\tAvg Reward :',avg_reward,'\tTotal reward :',total_reward,'\tSteps :',n_steps)
 
 if __name__ == '__main__':
-    global_model = DDPG(obs_dim=obs_dim, act_dim=act_dim, memory_size=args.rmsize,\
+    global_model = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=env, memory_size=args.rmsize,\
                         batch_size=args.bsize, tau=args.tau)
     optimizer_global_actor = SharedAdam(global_model.actor.parameters(), lr=1e-4)
     optimizer_global_critic = SharedAdam(global_model.critic.parameters(), lr=1e-3)

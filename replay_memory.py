@@ -305,11 +305,12 @@ class EpisodeParameterMemory(Memory):
 
 
 class Replay(object):
-    def __init__(self, max_size):
+    def __init__(self, max_size, env):
         self.buffer = []
         self.capacity = max_size
         self.position = 0
-        #self.initialize(init_length=1000)
+        self.env = env
+        self.initialize(init_length=1000)
 
     def add_experience(self, state, action, reward, next_state, done):
         if len(self.buffer) < self.capacity:
@@ -318,18 +319,18 @@ class Replay(object):
                                       np.asarray(next_state), done)
         self.position = (self.position+1)%self.capacity
 
-    # def initialize(self, init_length, env=env):
-    #     state = env.reset()
-    #     while True:
-    #         action = np.random.uniform(-1.0, 1.0, size=env.action_space.shape)
-    #         next_state, reward, done, _ = env.step(action)
-    #         self.add_experience(state, action, reward, next_state, done)
-    #         if done:
-    #             state = env.reset()
-    #             if len(self.buffer)>=init_length:
-    #                 break
-    #         else:
-    #             state = next_state
+    def initialize(self, init_length):
+        state = self.env.reset()
+        while True:
+            action = np.random.uniform(-1.0, 1.0, size=self.env.action_space.shape)
+            next_state, reward, done, _ = self.env.step(action)
+            self.add_experience(state, action, reward, next_state, done)
+            if len(self.buffer) >= init_length:
+                break
+            if done:
+                state = self.env.reset()
+            else:
+                state = next_state
 
     def sample(self, batch_size):
         states = []

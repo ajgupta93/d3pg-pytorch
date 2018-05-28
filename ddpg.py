@@ -4,10 +4,10 @@ import torch.optim as optim
 import torch.nn as nn
 from random_process import OrnsteinUhlenbeckProcess
 from utils import *
-from replay_memory import SequentialMemory as Replay
+from replay_memory import Replay#SequentialMemory as Replay
 
 class DDPG:
-    def __init__(self, obs_dim, act_dim,memory_size=50000, batch_size=64,\
+    def __init__(self, obs_dim, act_dim, env, memory_size=50000, batch_size=64,\
                  lr_critic=1e-3, lr_actor=1e-4, gamma=0.99, tau=0.001):
         
         self.gamma          = gamma
@@ -16,6 +16,7 @@ class DDPG:
         self.act_dim        = act_dim
         self.memory_size    = memory_size
         self.tau            = tau
+        self.env            = env
 
         # actor
         self.actor = actor(input_size = obs_dim, output_size = act_dim)
@@ -38,7 +39,8 @@ class DDPG:
         self.noise = OrnsteinUhlenbeckProcess(dimension=act_dim, num_steps=5000)
 
         # replay buffer 
-        self.replayBuffer = Replay(self.memory_size, window_length=1)
+        #self.replayBuffer = Replay(self.memory_size, window_length=1)
+        self.replayBuffer = Replay(self.memory_size, self.env)
 
     def share_memory(self):
         self.actor.share_memory()
@@ -66,7 +68,7 @@ class DDPG:
         for parameter_target, parameter_source in zip(self.actor_target.parameters(), self.actor.parameters()):
             parameter_target.data.copy_((1 - self.tau) * parameter_target.data + self.tau * parameter_source.data)
         # Soft update of critic_target
-        for parameter_target, parameter_source in zip(self.actor_target.parameters(), self.actor.parameters()):
+        for parameter_target, parameter_source in zip(self.critic_target.parameters(), self.critic.parameters()):
             parameter_target.data.copy_((1 - self.tau) * parameter_target.data + self.tau * parameter_source.data)
 
     def sync_local_global(self, global_model):
@@ -77,7 +79,8 @@ class DDPG:
 
     def train(self, global_model):
         # sample from Replay
-        states, actions, rewards, next_states, terminates = self.replayBuffer.sample_and_split(self.batch_size)
+        #states, actions, rewards, next_states, terminates = self.replayBuffer.sample_and_split(self.batch_size)
+        states, actions, rewards, next_states, terminates = self.replayBuffer.sample(self.batch_size)
 
         # update critic (create target for Q function)
         target_qvalues = self.critic_target(to_tensor(next_states, volatile=True),\
@@ -92,6 +95,7 @@ class DDPG:
                
         # critic optimizer and backprop step (feed in target and predicted values to self.critic_loss)
         #self.critic.zero_grad()
+        self.critic.zero_grad()
         qvalue_loss.backward()
         self.optimizer_critic.step()
         # update actor (formulate the loss wrt which actor is updated)
@@ -101,6 +105,7 @@ class DDPG:
 
         # actor optimizer and backprop step (loss_actor.backward())
         #self.actor.zero_grad()
+        self.actor.zero_grad()
         policy_loss.backward()
         self.optimizer_actor.step()
         self.update_target_parameters()
