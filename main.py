@@ -6,7 +6,7 @@ from shared_adam import SharedAdam
 import numpy as np
 from normalize_env import NormalizeAction
 import torch.multiprocessing as mp
-import pdb
+from pdb import set_trace as bp
 
 # Parameters
 parser = argparse.ArgumentParser(description='async_ddpg')
@@ -47,18 +47,18 @@ act_dim = env.action_space.n if discrete else env.action_space.shape[0]
 
 class Worker(object):
     def __init__(self, name, optimizer_global_actor, optimizer_global_critic):
-        self.env = NormalizeAction(gym.make(args.env).env)
+        self.env = NormalizeAction(gym.make(args.env))
         self.env._max_episode_steps = args.max_steps
         self.name = name
 
-        self.model = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=self.env, memory_size=args.rmsize,\
+        self.ddpg = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=self.env, memory_size=args.rmsize,\
                           batch_size=args.bsize, tau=args.tau)
-        self.model.assign_global_optimizer(optimizer_global_actor, optimizer_global_critic)
+        self.ddpg.assign_global_optimizer(optimizer_global_actor, optimizer_global_critic)
         print('Intialized worker :',self.name)
 
     def warmup(self):
         n_steps = 0
-        self.model.actor.eval()
+        self.ddpg.actor.eval()
         # for i in range(args.n_eps):
         #     state = self.env.reset()
         #     for j in range(args.max_steps):
@@ -67,7 +67,7 @@ class Worker(object):
         for n_steps in range(args.warmup):
             action = np.random.uniform(-1.0, 1.0, size=act_dim)
             next_state, reward, done, _ = self.env.step(action)
-            self.model.replayBuffer.append(state, action, reward, done)
+            self.ddpg.replayBuffer.append(state, action, reward, done)
 
             if done:
                 state = self.env.reset()
@@ -75,30 +75,29 @@ class Worker(object):
                 state = next_state
 
 
-    def work(self, global_model):
+    def work(self, global_ddpg):
         avg_reward = 0.
         n_steps = 0
-
         #self.warmup()
-        self.model.sync_local_global(global_model)
-        self.model.hard_update()
+
+        self.ddpg.sync_local_global(global_ddpg)
+        self.ddpg.hard_update()
         for i in range(args.n_eps):
             state = self.env.reset()
             total_reward = 0.
             for j in range(args.max_steps):
-
-                self.model.actor.eval()
+                self.ddpg.actor.eval()
 
                 state = state.reshape(1, -1)
-                noise = self.model.noise.sample()
-                action = to_numpy(self.model.actor(to_tensor(state))).reshape(-1, ) + noise
+                noise = self.ddpg.noise.sample()
+                action = to_numpy(self.ddpg.actor(to_tensor(state))).reshape(-1, ) + noise
                 next_state, reward, done, _ = self.env.step(action)
                 total_reward += reward
-                self.model.replayBuffer.add_experience(state.reshape(-1), action, reward, next_state, done)
-                #self.model.replayBuffer.append(state.reshape(-1), action, reward, done)
+                self.ddpg.replayBuffer.add_experience(state.reshape(-1), action, reward, next_state, done)
+                #self.ddpg.replayBuffer.append(state.reshape(-1), action, reward, done)
 
-                self.model.actor.train()
-                self.model.train(global_model)
+                self.ddpg.actor.train()
+                self.ddpg.train(global_ddpg)
 
                 n_steps += 1
 
@@ -106,6 +105,7 @@ class Worker(object):
                     break
 
                 state = next_state
+                # print("Episode ", i, "\t Step count: ", n_steps)
 
 
             avg_reward = 0.95*avg_reward + 0.05*total_reward
@@ -113,19 +113,20 @@ class Worker(object):
                 print('Episode ',i,'\tWorker :',self.name,'\tAvg Reward :',avg_reward,'\tTotal reward :',total_reward,'\tSteps :',n_steps)
 
 if __name__ == '__main__':
-    global_model = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=env, memory_size=args.rmsize,\
+    global_ddpg = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=env, memory_size=args.rmsize,\
                         batch_size=args.bsize, tau=args.tau)
-    optimizer_global_actor = SharedAdam(global_model.actor.parameters(), lr=1e-4)
-    optimizer_global_critic = SharedAdam(global_model.critic.parameters(), lr=1e-3)
+    optimizer_global_actor = SharedAdam(global_ddpg.actor.parameters(), lr=1e-4)
+    optimizer_global_critic = SharedAdam(global_ddpg.critic.parameters(), lr=1e-3)
 
     optimizer_global_actor.share_memory()
     optimizer_global_critic.share_memory()
-    global_model.share_memory()
+    global_ddpg.share_memory()
+
 
     processes = []
     for i in range(args.n_workers):
       worker = Worker(str(i), optimizer_global_actor, optimizer_global_critic)
-      p = mp.Process(target=worker.work, args=[global_model])
+      p = mp.Process(target=worker.work, args=[global_ddpg])
       p.start()
       processes.append(p)
 
