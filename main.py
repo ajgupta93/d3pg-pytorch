@@ -1,3 +1,4 @@
+from __future__ import division
 import gym
 import argparse
 from ddpg import DDPG
@@ -7,6 +8,9 @@ import numpy as np
 from normalize_env import NormalizeAction
 import torch.multiprocessing as mp
 from pdb import set_trace as bp
+import datetime
+import time
+import pickle
 
 # Parameters
 parser = argparse.ArgumentParser(description='async_ddpg')
@@ -14,8 +18,6 @@ parser = argparse.ArgumentParser(description='async_ddpg')
 #parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
 parser.add_argument('--n_workers', type=int, default=2, help='how many training processes to use (default: 4)')
 parser.add_argument('--rmsize', default=50000, type=int, help='memory size')
-#parser.add_argument('--init_w', default=0.003, type=float, help='')
-#parser.add_argument('--window_length', default=1, type=int, help='')
 parser.add_argument('--tau', default=0.001, type=float, help='moving average for target network')
 parser.add_argument('--ou_theta', default=0.15, type=float, help='noise theta')
 parser.add_argument('--ou_sigma', default=0.2, type=float, help='noise sigma')
@@ -26,14 +28,10 @@ parser.add_argument('--env', default='Pendulum-v0', type=str, help='Environment 
 parser.add_argument('--max_steps', default=500, type=int, help='Maximum steps per episode')
 parser.add_argument('--n_eps', default=2000, type=int, help='Maximum number of episodes')
 parser.add_argument('--debug', default=True, type=bool, help='Print debug statements')
-#parser.add_argument('--epsilon', default=10000, type=int, help='linear decay of exploration policy')
 parser.add_argument('--warmup', default=10000, type=int, help='time without training but only filling the replay memory')
-#parser.add_argument('--prate', default=0.0001, type=float, help='policy net learning rate (only for DDPG)')
-#parser.add_argument('--rate', default=0.001, type=float, help='learning rate')
-#parser.add_argument('--load_weights', dest="load_weights", action='store_true', help='load weights for actor and critic')
-#parser.add_argument('--shared', dest="shared", action='store_true')
-#parser.add_argument('--use_more_states', dest="use_more_states", action='store_true')
 #parser.add_argument('--num_states', default=4, type=int)
+parser.add_argument('--multithread', default=0, type=int, help='To activate multithread')
+parser.add_argument('--logfile', default='train_logs', type=str, help='File name for the train log data')
 
 
 args = parser.parse_args()
@@ -44,6 +42,20 @@ discrete = isinstance(env.action_space, gym.spaces.Discrete)
 # Get observation and action space dimensions
 obs_dim = env.observation_space.shape[0]
 act_dim = env.action_space.n if discrete else env.action_space.shape[0]
+
+def configure_env_params():
+    if args.env == 'Pendulum-v0':
+        args.v_min = -1000.0
+        args.v_max = 100
+    elif args.env == 'InvertedPendulum-v2':
+        args.v_min = -100
+        args.v_max = 500
+    elif args.env == 'HalfCheetah-v2':
+        args.v_min = -1000
+        args.v_max = 1000
+    else:
+        print("Undefined environment. Configure v_max and v_min for environment")
+
 
 class Worker(object):
     def __init__(self, name, optimizer_global_actor, optimizer_global_critic):
@@ -82,6 +94,16 @@ class Worker(object):
 
         self.ddpg.sync_local_global(global_ddpg)
         self.ddpg.hard_update()
+
+        # Logging variables
+        self.start_time = datetime.datetime.utcnow()
+        self.train_logs = {}
+        self.train_logs['avg_reward'] = []
+        self.train_logs['total_reward'] = []
+        self.train_logs['time'] = []
+        self.train_logs['info_summary'] = "DDPG"
+        self.train_logs['x'] = 'episode'
+
         for i in range(args.n_eps):
             state = self.env.reset()
             total_reward = 0.
@@ -111,24 +133,37 @@ class Worker(object):
             avg_reward = 0.95*avg_reward + 0.05*total_reward
             if i%1==0:
                 print('Episode ',i,'\tWorker :',self.name,'\tAvg Reward :',avg_reward,'\tTotal reward :',total_reward,'\tSteps :',n_steps)
+                print('Episode ',i,'\tWorker :',self.name,'\tAvg Reward :',avg_reward,'\tTotal reward :',total_reward,'\tSteps :',n_steps)
+                self.train_logs['avg_reward'].append(avg_reward)
+                self.train_logs['total_reward'].append(total_reward)
+                self.train_logs['time'].append((datetime.datetime.utcnow()-self.start_time).total_seconds()/60)
+                with open(args.logfile, 'wb') as fHandle:
+                    pickle.dump(self.train_logs, fHandle, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 if __name__ == '__main__':
+    configure_env_params()
+    args.logfile = args.logfile + '_' + args.env + '_' + time.strftime("%Y%m%d-%H%M%S") + '.pkl'
+
     global_ddpg = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=env, memory_size=args.rmsize,\
                         batch_size=args.bsize, tau=args.tau)
     optimizer_global_actor = SharedAdam(global_ddpg.actor.parameters(), lr=1e-4)
     optimizer_global_critic = SharedAdam(global_ddpg.critic.parameters(), lr=1e-3)
 
-    optimizer_global_actor.share_memory()
-    optimizer_global_critic.share_memory()
+    # optimizer_global_actor.share_memory()
+    # optimizer_global_critic.share_memory()
     global_ddpg.share_memory()
 
+    if not args.multithread:
+        worker = Worker(str(1), optimizer_global_actor, optimizer_global_critic)
+        worker.work(global_ddpg)
+    else:
+        processes = []
+        for i in range(args.n_workers):
+          worker = Worker(str(i), optimizer_global_actor, optimizer_global_critic)
+          p = mp.Process(target=worker.work, args=[global_ddpg])
+          p.start()
+          processes.append(p)
 
-    processes = []
-    for i in range(args.n_workers):
-      worker = Worker(str(i), optimizer_global_actor, optimizer_global_critic)
-      p = mp.Process(target=worker.work, args=[global_ddpg])
-      p.start()
-      processes.append(p)
-
-    for p in processes:
-        p.join()
+        for p in processes:
+            p.join()
