@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser(description='async_ddpg')
 
 #parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
 parser.add_argument('--n_workers', type=int, default=2, help='how many training processes to use (default: 4)')
-parser.add_argument('--rmsize', default=50000, type=int, help='memory size')
+parser.add_argument('--rmsize', default=60000, type=int, help='memory size')
 parser.add_argument('--tau', default=0.001, type=float, help='moving average for target network')
 parser.add_argument('--ou_theta', default=0.15, type=float, help='noise theta')
 parser.add_argument('--ou_sigma', default=0.2, type=float, help='noise sigma')
@@ -59,7 +59,7 @@ def configure_env_params():
 
 class Worker(object):
     def __init__(self, name, optimizer_global_actor, optimizer_global_critic):
-        self.env = NormalizeAction(gym.make(args.env))
+        self.env = NormalizeAction(gym.make(args.env).env)
         self.env._max_episode_steps = args.max_steps
         self.name = name
 
@@ -139,11 +139,16 @@ class Worker(object):
                 self.train_logs['time'].append((datetime.datetime.utcnow()-self.start_time).total_seconds()/60)
                 with open(args.logfile, 'wb') as fHandle:
                     pickle.dump(self.train_logs, fHandle, protocol=pickle.HIGHEST_PROTOCOL)
+                with open(args.logfile_latest, 'wb') as fHandle:
+                    pickle.dump(self.train_logs, fHandle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 if __name__ == '__main__':
     configure_env_params()
+    args.logfile_latest = args.logfile + '_' + args.env + '_latest' + '.pkl'
     args.logfile = args.logfile + '_' + args.env + '_' + time.strftime("%Y%m%d-%H%M%S") + '.pkl'
+
+
 
     global_ddpg = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=env, memory_size=args.rmsize,\
                         batch_size=args.bsize, tau=args.tau)
