@@ -145,8 +145,8 @@ class Worker(object):
 
 if __name__ == '__main__':
     configure_env_params()
-    args.logfile_latest = args.logfile + '_' + args.env + '_latest' + '.pkl'
-    args.logfile = args.logfile + '_' + args.env + '_' + time.strftime("%Y%m%d-%H%M%S") + '.pkl'
+    args.logfile_latest = args.logfile + '_' + args.env + '_latest_DDPG' + '.pkl'
+    args.logfile = args.logfile + '_' + args.env + '_DDPG_' + time.strftime("%Y%m%d-%H%M%S") + '.pkl'
 
 
 
