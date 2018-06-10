@@ -2,7 +2,7 @@ from models import actor, critic
 import torch
 import torch.optim as optim
 import torch.nn as nn
-from random_process import OrnsteinUhlenbeckProcess
+from random_process import OrnsteinUhlenbeckProcess, GaussianNoise
 from utils import *
 from replay_memory import Replay#SequentialMemory as Replay
 
@@ -36,7 +36,8 @@ class DDPG:
         self.critic_loss = nn.MSELoss()
         
         # noise
-        self.noise = OrnsteinUhlenbeckProcess(dimension=act_dim, num_steps=5000)
+        # self.noise = OrnsteinUhlenbeckProcess(dimension=act_dim, num_steps=5000)
+        self.noise = GaussianNoise(dimension=act_dim, num_epochs=5000)
 
         # replay buffer 
         #self.replayBuffer = Replay(self.memory_size, window_length=1)

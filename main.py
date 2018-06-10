@@ -112,7 +112,8 @@ class Worker(object):
 
                 state = state.reshape(1, -1)
                 noise = self.ddpg.noise.sample()
-                action = to_numpy(self.ddpg.actor(to_tensor(state))).reshape(-1, ) + noise
+                action = np.clip(to_numpy(self.ddpg.actor(to_tensor(state))).reshape(-1, ) + noise, -1.0, 1.0)
+                # action = to_numpy(self.ddpg.actor(to_tensor(state))).reshape(-1, ) + noise
                 next_state, reward, done, _ = self.env.step(action)
                 total_reward += reward
                 self.ddpg.replayBuffer.add_experience(state.reshape(-1), action, reward, next_state, done)
