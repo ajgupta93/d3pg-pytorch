@@ -50,7 +50,7 @@ def configure_env_params():
     elif args.env == 'InvertedPendulum-v2':
         args.v_min = -100
         args.v_max = 500
-    elif args.env == 'HalfCheetah-v2':
+    elif args.env == 'HalfCheetah-v1':
         args.v_min = -1000
         args.v_max = 1000
     else:
@@ -133,7 +133,6 @@ class Worker(object):
             avg_reward = 0.95*avg_reward + 0.05*total_reward
             if i%1==0:
                 print('Episode ',i,'\tWorker :',self.name,'\tAvg Reward :',avg_reward,'\tTotal reward :',total_reward,'\tSteps :',n_steps)
-                print('Episode ',i,'\tWorker :',self.name,'\tAvg Reward :',avg_reward,'\tTotal reward :',total_reward,'\tSteps :',n_steps)
                 self.train_logs['avg_reward'].append(avg_reward)
                 self.train_logs['total_reward'].append(total_reward)
                 self.train_logs['time'].append((datetime.datetime.utcnow()-self.start_time).total_seconds()/60)
@@ -153,7 +152,7 @@ if __name__ == '__main__':
     global_ddpg = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=env, memory_size=args.rmsize,\
                         batch_size=args.bsize, tau=args.tau)
     optimizer_global_actor = SharedAdam(global_ddpg.actor.parameters(), lr=1e-4)
-    optimizer_global_critic = SharedAdam(global_ddpg.critic.parameters(), lr=1e-3)
+    optimizer_global_critic = SharedAdam(global_ddpg.critic.parameters(), lr=1e-4, weight_decay=1e-02)
 
     # optimizer_global_actor.share_memory()
     # optimizer_global_critic.share_memory()

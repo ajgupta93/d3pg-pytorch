@@ -8,7 +8,7 @@ from replay_memory import Replay#SequentialMemory as Replay
 
 class DDPG:
     def __init__(self, obs_dim, act_dim, env, memory_size=50000, batch_size=64,\
-                 lr_critic=1e-3, lr_actor=1e-4, gamma=0.99, tau=0.001):
+                 lr_critic=1e-4, lr_actor=1e-4, gamma=0.99, tau=0.001):
         
         self.gamma          = gamma
         self.batch_size     = batch_size
