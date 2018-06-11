@@ -23,7 +23,7 @@ parser.add_argument('--ou_theta', default=0.15, type=float, help='noise theta')
 parser.add_argument('--ou_sigma', default=0.2, type=float, help='noise sigma')
 parser.add_argument('--ou_mu', default=0.0, type=float, help='noise mu')
 parser.add_argument('--bsize', default=64, type=int, help='minibatch size')
-parser.add_argument('--gamma', default=0.9, type=float, help='')
+parser.add_argument('--gamma', default=0.99, type=float, help='')
 parser.add_argument('--env', default='Pendulum-v0', type=str, help='Environment to use')
 parser.add_argument('--max_steps', default=500, type=int, help='Maximum steps per episode')
 parser.add_argument('--n_eps', default=2000, type=int, help='Maximum number of episodes')
@@ -135,7 +135,7 @@ class Worker(object):
                     for k in range(-args.n_steps, 0):
                         cum_reward += exp_gamma * episode_rewards[k]
                         exp_gamma *= args.gamma
-                    self.ddpg.replayBuffer.add(episode_states[-args.n_steps].reshape(-1), episode_actions[-1], cum_reward, next_state, done)
+                    self.ddpg.replayBuffer.add(episode_states[-args.n_steps].reshape(-1), episode_actions[-args.n_steps], cum_reward, next_state, done)
                     # self.ddpg.replayBuffer.add_experience(state.reshape(-1), action, reward, next_state, done)
                     #self.ddpg.replayBuffer.append(state.reshape(-1), action, reward, done)
 
@@ -174,8 +174,8 @@ if __name__ == '__main__':
 
     global_ddpg = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=env, memory_size=args.rmsize,\
                         batch_size=args.bsize, tau=args.tau)
-    optimizer_global_actor = SharedAdam(global_ddpg.actor.parameters(), lr=1e-4)
-    optimizer_global_critic = SharedAdam(global_ddpg.critic.parameters(), lr=1e-4, weight_decay=1e-02)
+    optimizer_global_actor = SharedAdam(global_ddpg.actor.parameters(), lr=5e-5)
+    optimizer_global_critic = SharedAdam(global_ddpg.critic.parameters(), lr=5e-5)#, weight_decay=1e-02)
 
     # optimizer_global_actor.share_memory()
     # optimizer_global_critic.share_memory()
