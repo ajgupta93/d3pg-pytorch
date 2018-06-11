@@ -8,7 +8,7 @@ from replay_memory import Replay#SequentialMemory as Replay
 
 class DDPG:
     def __init__(self, obs_dim, act_dim, env, memory_size=50000, batch_size=64,\
-                 lr_critic=1e-4, lr_actor=1e-4, gamma=0.99, tau=0.001):
+                 lr_critic=1e-4, lr_actor=1e-4, gamma=0.99, tau=0.001, n_steps = 1):
         
         self.gamma          = gamma
         self.batch_size     = batch_size
@@ -17,6 +17,8 @@ class DDPG:
         self.memory_size    = memory_size
         self.tau            = tau
         self.env            = env
+        self.n_steps        = n_steps
+        self.n_step_gamma   = self.gamma ** self.n_steps
 
         # actor
         self.actor = actor(input_size = obs_dim, output_size = act_dim)
@@ -86,7 +88,7 @@ class DDPG:
         target_qvalues = self.critic_target(to_tensor(next_states, volatile=True),\
                                             self.actor_target(to_tensor(next_states, volatile=True)))
         y = to_numpy(to_tensor(rewards) +\
-                     self.gamma*to_tensor(1-terminates)*target_qvalues)
+                     self.n_step_gamma*to_tensor(1-terminates)*target_qvalues)
 
         q_values = self.critic(to_tensor(states),
                                to_tensor(actions))
