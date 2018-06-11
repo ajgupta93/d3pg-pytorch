@@ -23,7 +23,7 @@ parser.add_argument('--ou_theta', default=0.15, type=float, help='noise theta')
 parser.add_argument('--ou_sigma', default=0.2, type=float, help='noise sigma')
 parser.add_argument('--ou_mu', default=0.0, type=float, help='noise mu')
 parser.add_argument('--bsize', default=64, type=int, help='minibatch size')
-parser.add_argument('--discount', default=0.9, type=float, help='')
+parser.add_argument('--gamma', default=0.9, type=float, help='')
 parser.add_argument('--env', default='Pendulum-v0', type=str, help='Environment to use')
 parser.add_argument('--max_steps', default=500, type=int, help='Maximum steps per episode')
 parser.add_argument('--n_eps', default=2000, type=int, help='Maximum number of episodes')
@@ -32,7 +32,7 @@ parser.add_argument('--warmup', default=10000, type=int, help='time without trai
 #parser.add_argument('--num_states', default=4, type=int)
 parser.add_argument('--multithread', default=0, type=int, help='To activate multithread')
 parser.add_argument('--logfile', default='train_logs', type=str, help='File name for the train log data')
-
+parser.add_argument('--n_steps', default=5, type=int, help='number of steps to rollout')
 
 args = parser.parse_args()
 
@@ -64,7 +64,7 @@ class Worker(object):
         self.name = name
 
         self.ddpg = DDPG(obs_dim=obs_dim, act_dim=act_dim, env=self.env, memory_size=args.rmsize,\
-                          batch_size=args.bsize, tau=args.tau)
+                          batch_size=args.bsize, tau=args.tau, gamma = args.gamma, n_steps = args.n_steps)
         self.ddpg.assign_global_optimizer(optimizer_global_actor, optimizer_global_critic)
         print('Intialized worker :',self.name)
 
@@ -101,12 +101,19 @@ class Worker(object):
         self.train_logs['avg_reward'] = []
         self.train_logs['total_reward'] = []
         self.train_logs['time'] = []
+        self.train_logs['x_val'] = []
         self.train_logs['info_summary'] = "DDPG"
-        self.train_logs['x'] = 'episode'
+        self.train_logs['x'] = 'steps'
+        step_counter = 0
 
         for i in range(args.n_eps):
             state = self.env.reset()
             total_reward = 0.
+
+            episode_states = []
+            episode_rewards = []
+            episode_actions = []
+
             for j in range(args.max_steps):
                 self.ddpg.actor.eval()
 
@@ -116,27 +123,42 @@ class Worker(object):
                 # action = to_numpy(self.ddpg.actor(to_tensor(state))).reshape(-1, ) + noise
                 next_state, reward, done, _ = self.env.step(action)
                 total_reward += reward
-                self.ddpg.replayBuffer.add_experience(state.reshape(-1), action, reward, next_state, done)
-                #self.ddpg.replayBuffer.append(state.reshape(-1), action, reward, done)
+
+                #### n-steps buffer
+                episode_states.append(state)
+                episode_actions.append(action)
+                episode_rewards.append(reward)
+
+                if j >= args.n_steps-1:
+                    cum_reward = 0.
+                    exp_gamma = 1
+                    for k in range(-args.n_steps, 0):
+                        cum_reward += exp_gamma * episode_rewards[k]
+                        exp_gamma *= args.gamma
+                    self.ddpg.replayBuffer.add(episode_states[-args.n_steps].reshape(-1), episode_actions[-1], cum_reward, next_state, done)
+                    # self.ddpg.replayBuffer.add_experience(state.reshape(-1), action, reward, next_state, done)
+                    #self.ddpg.replayBuffer.append(state.reshape(-1), action, reward, done)
 
                 self.ddpg.actor.train()
                 self.ddpg.train(global_ddpg)
-
+                step_counter += 1
                 n_steps += 1
 
                 if done:
                     break
 
+
                 state = next_state
                 # print("Episode ", i, "\t Step count: ", n_steps)
 
-
+            self.ddpg.noise.reset()
             avg_reward = 0.95*avg_reward + 0.05*total_reward
             if i%1==0:
                 print('Episode ',i,'\tWorker :',self.name,'\tAvg Reward :',avg_reward,'\tTotal reward :',total_reward,'\tSteps :',n_steps)
                 self.train_logs['avg_reward'].append(avg_reward)
                 self.train_logs['total_reward'].append(total_reward)
                 self.train_logs['time'].append((datetime.datetime.utcnow()-self.start_time).total_seconds()/60)
+                self.train_logs['x_val'].append(step_counter)
                 with open(args.logfile, 'wb') as fHandle:
                     pickle.dump(self.train_logs, fHandle, protocol=pickle.HIGHEST_PROTOCOL)
                 with open(args.logfile_latest, 'wb') as fHandle:
